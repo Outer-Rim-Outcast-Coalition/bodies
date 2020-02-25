@@ -33,7 +33,11 @@ mapping system IDs to distances from Sol.`,
 		fmt.Printf("reading from: %s\n", in)
 		gob,_ := cmd.Flags().GetString("gob-file")
 		fmt.Printf("using gob: %s\n", gob)
-		distances.MakeDB(in, gob)
+		max,_ := cmd.Flags().GetFloat64("max")
+		fmt.Printf("using max: %.2f\n", max)
+		min,_ := cmd.Flags().GetFloat64("min")
+		fmt.Printf("using min: %.2f\n", min)
+		distances.MakeDB(in, gob, max, min)
 	},
 }
 
@@ -42,6 +46,10 @@ func init() {
 
 	var InputFilename string
 	var GobFilename string
+	var MaxDistance float64
+	var MinDistance float64
 	computeDistancesCmd.Flags().StringVarP(&InputFilename, "system-file", "s", "", "EDSM gzipped dump to read system data from.")
 	computeDistancesCmd.Flags().StringVarP(&GobFilename, "gob-file", "g", "", "Filename to write gob'ed distance data to.")
+	computeDistancesCmd.Flags().Float64VarP(&MaxDistance, "max", "m", 2000.0, "Limit systems to max distance from Sol.")
+	computeDistancesCmd.Flags().Float64VarP(&MinDistance, "min", "n", 0.0, "Limit systems to min distance from Sol.")
 }

@@ -23,7 +23,7 @@ type System struct {
 
 type Distances map[int64]float64
 
-func getDistances(fn string) Distances {
+func getDistances(fn string, max, min float64) Distances {
 	distances := make(Distances)
 	// open file, chain gzip.Reader and json.Decoder
 	fileReader, err := os.Open(fn)
@@ -57,7 +57,7 @@ func getDistances(fn string) Distances {
 			log.Fatal(err)
 		}
 		d := math.Sqrt(math.Pow(s.Coords.X, 2) + math.Pow(s.Coords.Y, 2) + math.Pow(s.Coords.Z, 2))
-		if d <= 2000 {
+		if d <= max && d > min {
 			distances[s.Id] = d
 			j++
 		}
@@ -87,7 +87,7 @@ func (d Distances) WriteToGob(fn string) {
 	}
 }
 
-func MakeDB(infile, gobfile string) {
-	distances := getDistances(infile)
+func MakeDB(infile, gobfile string, max, min float64) {
+	distances := getDistances(infile, max, min)
 	distances.WriteToGob(gobfile)
 }
