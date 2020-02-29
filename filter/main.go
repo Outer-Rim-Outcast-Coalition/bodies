@@ -374,7 +374,7 @@ func FilterBodies(bodies, gob, outfn, outfmt, reexp string, limit int64) {
 		csvTime := time.Since(csvStart)
 		fmt.Printf("csv %s\n", csvTime)
 	case "es":
-		esStart := Time.Now()
+		esStart := time.Now()
 		candidates.WriteToElasticSearch()
 		esTime := time.Since(esStart)
 		fmt.Printf("es %s\n", esTime)
