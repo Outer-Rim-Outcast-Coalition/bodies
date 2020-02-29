@@ -1,0 +1,21 @@
+version: '3'
+services:
+  elastic:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.5.1
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      -  "discovery.type=single-node"
+      -  "network.host=0.0.0.0"
+      -  "node.name=elasticsearch"
+      -  "node.master=true"
+      -  "cluster.name=poc"
+      -  "xpack.security.enabled=false"
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.5.1
+    ports:
+      - "5601:5601"
+    environment:
+      SERVER_NAME: localhost
+      ELASTICSEARCH_HOSTS: http://elastic:9200

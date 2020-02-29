@@ -1,21 +1,26 @@
 package filter
 
 import (
-	"fmt"
-	"os"
 	"bufio"
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/csv"
 	"encoding/gob"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
-	"sync"
 	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/elastic/go-elasticsearch/v8"
 )
 
 type GasGiantKey struct {
@@ -25,7 +30,7 @@ type GasGiantKey struct {
 type GasGiantValue struct{}
 
 type Body struct {
-	Id, Id64, BodyId                                     int64
+	ID, ID64, BodyID                                     int64
 	Name, Type, SubType                                  string
 	Parents                                              []map[string]int
 	DistanceToArrival                                    float64
@@ -41,7 +46,7 @@ type Body struct {
 	AxialTilt                                            float64
 	Materials                                            map[string]float64
 	UpdateTime                                           string
-	SystemId, SystemId64                                 int64
+	SystemID, SystemID64                                 int64
 	SystemName                                           string
 	Distance                                             float64
 }
@@ -133,6 +138,44 @@ func (c Candidates) WriteToCSV(fn string) {
 	enc.Flush()
 }
 
+func (c Candidates) WriteToElasticSearch() {
+	cfg := elasticsearch.Config{
+		Addresses: []string{
+			"http://localhost:9200",
+		},
+	}
+	es, err := elasticsearch.NewClient(cfg)
+	if err != nil {
+		log.Fatalf("Error creating ES client: %s", err)
+	}
+	for i, cand := range c {
+		body, _ := json.Marshal(cand)
+		req := esapi.IndexRequest{
+			Index:      "candidates",
+			DocumentID: strconv.Itoa(i + 1),
+			Body:       bytes.NewBuffer(body),
+			Refresh:    "true",
+		}
+		res, err := req.Do(context.Background(), es)
+		if err != nil {
+			log.Fatalf("Error getting response: %s", err)
+		}
+		if res.IsError() {
+			log.Printf("[%s] Error indexing document ID=%d", res.Status(), i+1)
+		} else {
+			var r map[string]interface{}
+			if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
+				log.Printf("Error parsing the response body: %s", err)
+			}
+			// } else {
+			// 	log.Printf("[%s] %s; version=%d", res.Status(), r["result"], int(r["_version"].(float64)))
+			// }
+		}
+		res.Body.Close()
+
+	}
+}
+
 func loadDistances(fn string) DistanceMap {
 	fmt.Printf("loading distances from %s... ", fn)
 	gobfile, err := os.Open(fn)
@@ -177,23 +220,23 @@ func inputWorker(id int, queue <-chan string, results chan<- Body, ggs chan<- Ga
 	ggRegEx, _ := regexp.Compile("(?i)gas giant")
 	var k GasGiantKey
 	for t := range queue {
-		t = t[:len(t) - 1]
+		t = t[:len(t)-1]
 		body := Body{}
 		json.Unmarshal([]byte(t), &body)
-		distance, found := distances[body.SystemId]
+		distance, found := distances[body.SystemID]
 		if found &&
-		body.IsLandable &&
-		body.DistanceToArrival > 12000 &&
-		body.VolcanismType != "No volcanism" &&
-		body.SurfaceTemperature <= 220 &&
-		body.hasInterestingMaterial() {
+			body.IsLandable &&
+			body.DistanceToArrival > 12000 &&
+			body.VolcanismType != "No volcanism" &&
+			body.SurfaceTemperature <= 220 &&
+			body.hasInterestingMaterial() {
 			body.Distance = distance
 			results <- body
 		}
 		if found && body.Type == "Planet" {
 			if ggRegEx.MatchString(body.SubType) {
 				// fmt.Println()
-				k = GasGiantKey{SystemId: body.SystemId, BodyId: body.BodyId}
+				k = GasGiantKey{SystemId: body.SystemID, BodyId: body.BodyID}
 				ggs <- k
 			}
 		}
@@ -233,48 +276,48 @@ func findCandidates(fn string, distances DistanceMap, limit int64) Candidates {
 	var k GasGiantKey
 	gasGiants := make(map[GasGiantKey]GasGiantValue)
 	var t string
-	in_queue := make(chan string, 100000)
+	inQueue := make(chan string, 100000)
 	results := make(chan Body, 100000)
 	gasGiantsChan := make(chan GasGiantKey, 100000)
 	candidates := make(Candidates, 0, 200000)
-	var gg_wg sync.WaitGroup
-	go gasGiantsWorker(gasGiantsChan, gasGiants, &gg_wg)
-	gg_wg.Add(1)
-	var in_wg sync.WaitGroup
+	var ggWg sync.WaitGroup
+	go gasGiantsWorker(gasGiantsChan, gasGiants, &ggWg)
+	ggWg.Add(1)
+	var inWg sync.WaitGroup
 	for w := 0; w < 3; w++ {
-		go inputWorker(w, in_queue, results, gasGiantsChan, distances, &in_wg)
-		in_wg.Add(1)
+		go inputWorker(w, inQueue, results, gasGiantsChan, distances, &inWg)
+		inWg.Add(1)
 	}
-	var out_wg sync.WaitGroup
-	go outputWorker(results, &candidates, &out_wg)
-	out_wg.Add(1)
+	var outWg sync.WaitGroup
+	go outputWorker(results, &candidates, &outWg)
+	outWg.Add(1)
 	for scanner.Scan() {
 		t = scanner.Text()
 		if strings.HasSuffix(t, ",") {
-			in_queue <- t
+			inQueue <- t
 			i++
-			fmt.Printf("\rRead: %d / Queued to process: %d / Queued to keep: %d / Candidates: %d", i, len(in_queue), len(results), len(candidates))
+			fmt.Printf("\rRead: %d / Queued to process: %d / Queued to keep: %d / Candidates: %d", i, len(inQueue), len(results), len(candidates))
 			if limit > 0 && i >= limit {
 				break
 			}
 		}
 	}
 	fmt.Println()
-	close(in_queue)
-	in_wg.Wait()
+	close(inQueue)
+	inWg.Wait()
 	close(results)
 	close(gasGiantsChan)
-	out_wg.Wait()
+	outWg.Wait()
 	candidatesFinal := make(Candidates, 0, len(candidates))
 	var c, f int
 	c, f = 0, 0
-	for _,body := range candidates {
-		var pId int
+	for _, body := range candidates {
+		var pID int
 		var isPlanet bool
-		for _,p := range body.Parents {
-			pId, isPlanet = p["Planet"]
+		for _, p := range body.Parents {
+			pID, isPlanet = p["Planet"]
 			if isPlanet {
-				k = GasGiantKey{SystemId: body.SystemId, BodyId: int64(pId)}
+				k = GasGiantKey{SystemId: body.SystemID, BodyId: int64(pID)}
 				break
 			}
 		}
@@ -296,40 +339,45 @@ func findCandidates(fn string, distances DistanceMap, limit int64) Candidates {
 func FilterBodies(bodies, gob, outfn, outfmt, reexp string, limit int64) {
 	var candidates Candidates
 	if reexp == "" {
-		distances_start := time.Now()
+		distancesStart := time.Now()
 		distances := loadDistances(gob)
-		distances_time := time.Since(distances_start)
-		fmt.Printf("loadDistances %s\n", distances_time)
+		distancesTime := time.Since(distancesStart)
+		fmt.Printf("loadDistances %s\n", distancesTime)
 
-		candidates_start := time.Now()
+		candidatesStart := time.Now()
 		candidates = findCandidates(bodies, distances, limit)
-		candidates_time := time.Since(candidates_start)
-		fmt.Printf("findCandidates %s\n", candidates_time)
+		candidatesTime := time.Since(candidatesStart)
+		fmt.Printf("findCandidates %s\n", candidatesTime)
 
-		sort_start := time.Now()
+		sortStart := time.Now()
 		sort.Sort(Candidates(candidates))
-		sort_time := time.Since(sort_start)
-		fmt.Printf("sort %s\n", sort_time)
+		sortTime := time.Since(sortStart)
+		fmt.Printf("sort %s\n", sortTime)
 	} else {
-		load_start := time.Now()
+		loadStart := time.Now()
 		candidates = loadDump(reexp)
-		load_time := time.Since(load_start)
-		fmt.Printf("load %s\n", load_time)
+		loadTime := time.Since(loadStart)
+		fmt.Printf("load %s\n", loadTime)
 	}
 
 	bufio.NewReader(os.Stdin).ReadString('\n')
 
 	switch outfmt {
 	case "json":
-		json_start := time.Now()
+		jsonStart := time.Now()
 		candidates.WriteToJSON(outfn)
-		json_time := time.Since(json_start)
-		fmt.Printf("json %s\n", json_time)
+		jsonTime := time.Since(jsonStart)
+		fmt.Printf("json %s\n", jsonTime)
 	case "csv":
-		csv_start := time.Now()
+		csvStart := time.Now()
 		candidates.WriteToCSV(outfn)
-		csv_time := time.Since(csv_start)
-		fmt.Printf("csv %s\n", csv_time)
+		csvTime := time.Since(csvStart)
+		fmt.Printf("csv %s\n", csvTime)
+	case "es":
+		esStart := Time.Now()
+		candidates.WriteToElasticSearch()
+		esTime := time.Since(esStart)
+		fmt.Printf("es %s\n", esTime)
 	default:
 		log.Fatalf("Invalid format: %s Must be one of [json,csv]", outfmt)
 	}
