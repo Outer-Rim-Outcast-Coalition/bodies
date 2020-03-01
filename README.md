@@ -6,10 +6,10 @@ From the Wiki:
 
 > To make this more generally useful we would need to complete the list of materials and hopefully find locations closer to the Bubble.
 
-That's what this program attempts to do. It uses data dumps from EDSM:
+That's what this program attempts to do. It uses data dumps from [EDSM](https://www.edsm.net/):
 
-* bodies.json.gz
-* systemsWithCoordinates.json.gz
+* https://www.edsm.net/dump/bodies.json.gz
+* https://www.edsm.net/dump/systemsWithCoordinates.json.gz
 
 ## Filtering criteria
 
@@ -24,6 +24,14 @@ That's what this program attempts to do. It uses data dumps from EDSM:
   * Technetium
   * Polonium
   * Tellurium
+
+## Build
+
+1. Follow instructions to install [Go](https://golang.org/dl/) on your system. This program doesn't have any dependencies on packages that need CGO so that's all that should be needed.
+1. If you have Git, clone the repo to your Go home folder under `src/`. If you don't, just download and unzip the code.
+1. Open a command line and navigate to the root folder of the project.
+1. Run `go build` to compile a binary, it should be named `bodies` (*NIX) or `bodies.exe` (Windows).
+1. Optionally run `go install bodies` to install to a universally accessible location.
 
 ## Usage
 
